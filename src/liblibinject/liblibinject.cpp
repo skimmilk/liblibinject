@@ -22,6 +22,7 @@
 #include <sys/syscall.h>
 #include <error.h>
 #include <errno.h>
+#include <dlfcn.h>
 
 // project includes
 #include "liblibinject.h"
@@ -141,6 +142,38 @@ void external_call_dlopen(
 	extern_syscall(1337);
 }
 
+// Get the offsets of dlopen and syscall in the process
+void get_external_offsets(bool verbose,
+		long local_libc_base, long extern_libc_base,
+		long& extern_dlopen, long& extern_syscall)
+{
+    // Get the offset of the functions __libc_dlopen_mode and syscall
+    //   in the process
+    long local_dlopen = (long)dlsym(0, "__libc_dlopen_mode");
+    long local_syscall = (long)dlsym(0, "syscall");
+
+    extern_dlopen = local_dlopen - local_libc_base + extern_libc_base;
+    extern_syscall = local_syscall - local_libc_base + extern_libc_base;
+
+    if (verbose)
+    {
+    	fprintf(stderr, "Local libc is loaded at %p\n", (void*)local_libc_base);
+    	fprintf(stderr, "Local dlopen is at %p\n", (void*)local_dlopen);
+    	fprintf(stderr, "Local syscall is at %p\n", (void*)local_syscall);
+
+    	fprintf(stderr, "Offset of dlopen is %p\n",
+    			(void*)(local_dlopen - local_libc_base));
+    	fprintf(stderr, "Offset of syscall is %p\n",
+    			(void*)(local_syscall - local_libc_base));
+
+    	fprintf(stderr, "External libc base is loaded at %p\n",
+    			(void*)extern_syscall);
+    	fprintf(stderr,
+    			"External dlopen is at %p\nExternal syscall is at %p\n\n",
+    			(void*)extern_dlopen, (void*)extern_syscall);
+    }
+}
+
 inject_error create_remote_thread(pid_t pid, int verbose)
 {
 	remote_state state;
@@ -159,16 +192,13 @@ inject_error create_remote_thread(pid_t pid, int verbose)
     PCHECK(PTRACE_GETREGS, pid, 0, &state.regs_old);
 
     // Get the base of libc
-    auto extern_libc_base = baseof(pid, "libc");
-    auto libc_base = baseof(getpid(), "libc");
-    // Get the offset of the functions __libc_dlopen_mode and syscall
-    //   in the process
-    auto extern_dlopen = __libc_dlopen_mode - libc_base + extern_libc_base;
-    auto extern_syscall = syscall - libc_base + extern_libc_base;
+    long extern_libc_base = baseof(pid, "libc");
+    long local_libc_base = baseof(getpid(), "libc");
 
-    if (verbose)
-    	printf(stderr, "External dlopen is at %p\nExternal syscall is at %p\n",
-    			extern_dlopen, extern_syscall);
+    // Get the offsets of dlopen and syscall in the program's memory
+    long extern_dlopen, extern_syscall;
+    get_external_offsets(verbose, local_libc_base, extern_libc_base,
+    		extern_dlopen, extern_syscall);
 
     // Get the location of libc in the attached program and in the current one
     state.executable_page = make_mmap_call(state, extern_libc_base);

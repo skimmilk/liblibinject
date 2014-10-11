@@ -8,9 +8,7 @@
 #ifndef MULTIARCH_H_
 #define MULTIARCH_H_
 
-
 namespace inject{
-
 
 // Stores information about the attached application
 struct remote_state
