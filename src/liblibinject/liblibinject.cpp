@@ -80,7 +80,7 @@ long baseof(pid_t pid, const std::string& libname)
 }
 
 // Forces the attached program to make a syscall
-// Stops execution right before the call is made
+// Set up the program to do a syscall, but without doing so
 void inject_syscall(const remote_state& state, long exec_base)
 {
 	// This is the data that gets executed and makes a syscall
@@ -95,28 +95,27 @@ void inject_syscall(const remote_state& state, long exec_base)
 	PCHECK(PTRACE_SETREGS, state.pid, 0, &regs);
 }
 
-// Allocate memory inside the attached application
-long make_mmap_call(const remote_state& state, long exec_base)
+// Make the program do a syscall
+long make_syscall(const remote_state& state, long exec_base,
+		long syscall_num,
+		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
 {
 	// This is the backup of the executable data being overwritten
 	long backup = ptrace(PTRACE_PEEKDATA, state.pid, exec_base, 0);
-	auto regs = state.regs_old;
 
+	// Program's registers to set
+	user_regs_struct regs;
+
+	// Set up the program to do the syscall
 	inject_syscall(state, exec_base);
 
-	// Now the program is stuck right before the system call
-	// Make it call mmap
-	//mmap(void *addr, size_t length, int prot, int flags,
-	//                  int fd, off_t offset);
-	set_syscall_arguments(state, SYS_mmap,
-			0, MAP_LENGTH, PROT_READ | PROT_EXEC,
-			MAP_ANONYMOUS | MAP_PRIVATE, 0);
-    PCHECK(PTRACE_GETREGS, state.pid, 0, &regs);
+	// Now the program is stuck right before the system call,
+	//   make it do the call
+	set_syscall_arguments(state, syscall_num, a1, a2, a3, a4, a5, a6);
 
 	// Make it call the correct syscall
 	PCHECK(PTRACE_SYSCALL, state.pid, 0, 0);
 	wait(0);
-    PCHECK(PTRACE_GETREGS, state.pid, 0, &regs);
 
 	// Continue with the syscall
 	PCHECK(PTRACE_SYSCALL, state.pid, 0, 0);
@@ -166,7 +165,7 @@ void get_external_offsets(bool verbose,
     	fprintf(stderr, "Offset of syscall is %p\n",
     			(void*)(local_syscall - local_libc_base));
 
-    	fprintf(stderr, "External libc base is loaded at %p\n",
+    	fprintf(stderr, "External libc is loaded at %p\n",
     			(void*)extern_syscall);
     	fprintf(stderr,
     			"External dlopen is at %p\nExternal syscall is at %p\n\n",
@@ -201,10 +200,13 @@ inject_error create_remote_thread(pid_t pid, int verbose)
     		extern_dlopen, extern_syscall);
 
     // Get the location of libc in the attached program and in the current one
-    state.executable_page = make_mmap_call(state, extern_libc_base);
+    state.executable_page = make_syscall(state, extern_libc_base,
+    					SYS_mmap,
+    					0, MAP_LENGTH, PROT_READ | PROT_EXEC,
+    					MAP_ANONYMOUS | MAP_PRIVATE, 0);
     if (verbose)
     	fprintf(stderr, "Executable page is at %p, or error %s\n",
-    			(void*)state.executable_page, strerror(state.executable_page * -1));
+    			(void*)state.executable_page, strerror(state.executable_page));
 
     // Restore the registers from the backup
 	PCHECK(PTRACE_SETREGS, state.pid, 0, &state.regs_old);
