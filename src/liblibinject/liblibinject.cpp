@@ -142,7 +142,7 @@ void external_call_dlopen(
 }
 
 // Get the offsets of dlopen and syscall in the process
-void get_external_offsets(bool verbose,
+void get_external_offsets(
 		long local_libc_base, long extern_libc_base,
 		long& extern_dlopen, long& extern_syscall)
 {
@@ -154,8 +154,7 @@ void get_external_offsets(bool verbose,
 	extern_dlopen = local_dlopen - local_libc_base + extern_libc_base;
 	extern_syscall = local_syscall - local_libc_base + extern_libc_base;
 
-	if (verbose)
-	{
+#ifdef DEBUG
 		fprintf(stderr, "Local libc is loaded at %p\n", (void*)local_libc_base);
 		fprintf(stderr, "Local dlopen is at %p\n", (void*)local_dlopen);
 		fprintf(stderr, "Local syscall is at %p\n", (void*)local_syscall);
@@ -170,21 +169,17 @@ void get_external_offsets(bool verbose,
 		fprintf(stderr,
 				"External dlopen is at %p\nExternal syscall is at %p\n\n",
 				(void*)extern_dlopen, (void*)extern_syscall);
-	}
+#endif
 }
 
-inject_error create_remote_thread(pid_t pid, int verbose)
+inject_error create_remote_thread(pid_t pid, const char* libname)
 {
 	remote_state state;
-	state.verbose = verbose;
 	state.pid = pid;
 
 	// Attach to the program
 	if (ptrace(PTRACE_ATTACH, pid, 0, 0) == -1)
-	{
-		std::cerr << "Could not attach, are you sure ptrace_scope is disabled?\n";
 		return inject_error::attach;
-	}
 	wait(0);
 
 	// Backup the registers
@@ -196,7 +191,7 @@ inject_error create_remote_thread(pid_t pid, int verbose)
 
 	// Get the offsets of dlopen and syscall in the program's memory
 	long extern_dlopen, extern_syscall;
-	get_external_offsets(verbose, local_libc_base, extern_libc_base,
+	get_external_offsets(local_libc_base, extern_libc_base,
 			extern_dlopen, extern_syscall);
 
 	// Force the program to make a buffer for us to inject code into
@@ -204,9 +199,11 @@ inject_error create_remote_thread(pid_t pid, int verbose)
 			SYS_mmap,
 			0, MAP_LENGTH, PROT_READ | PROT_EXEC,
 			MAP_ANONYMOUS | MAP_PRIVATE, 0);
-	if (verbose)
+
+#ifdef DEBUG
 		fprintf(stderr, "Executable page is at %p, or error %s\n",
 				(void*)state.executable_page, strerror(state.executable_page));
+#endif
 
 	// Delete the executable buffer
 	make_syscall(state, extern_libc_base,

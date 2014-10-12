@@ -14,12 +14,18 @@
 
 int main(int argc, char** argv)
 {
-	inject::cmdargs::inject_settings args;
-	argp_parse(&inject::cmdargs::argp, argc, argv, 0, 0, &args);
+	inject::inject_settings args;
+	argp_parse(&inject::argp, argc, argv, 0, 0, &args);
 
-	if (inject::create_remote_thread(args.pid, args.verbose) != inject::inject_error::none)
+	auto result = inject::create_remote_thread(args.pid, args.libname);
+	if (result == inject::inject_error::attach)
 	{
-		std::cerr << "Could not complete injection.\n";
+		std::cerr << "Could not attach, are you sure ptrace_scope is disabled?\n";
+		return 1;
+	}
+	else if (result != inject::inject_error::none)
+	{
+		std::cerr << "Could not complete injection\n";
 		return 1;
 	}
 	return 0;

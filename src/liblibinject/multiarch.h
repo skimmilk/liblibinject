@@ -13,7 +13,6 @@ namespace inject{
 // Stores information about the attached application
 struct remote_state
 {
-	int verbose;
 	// PID of the application to mess with
 	pid_t pid;
 	// The backup registers of the program

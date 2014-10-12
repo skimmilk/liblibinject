@@ -15,7 +15,7 @@ namespace inject {
 enum class inject_error {
 	none, attach
 };
-inject_error create_remote_thread(pid_t pid, int verbose);
+inject_error create_remote_thread(pid_t pid, const char* libname);
 
 };
 
