@@ -199,7 +199,7 @@ inject_error create_remote_thread(pid_t pid, int verbose)
 	get_external_offsets(verbose, local_libc_base, extern_libc_base,
 			extern_dlopen, extern_syscall);
 
-	// Get the location of libc in the attached program and in the current one
+	// Force the program to make a buffer for us to inject code into
 	state.executable_page = make_syscall(state, extern_libc_base,
 			SYS_mmap,
 			0, MAP_LENGTH, PROT_READ | PROT_EXEC,
@@ -208,8 +208,14 @@ inject_error create_remote_thread(pid_t pid, int verbose)
 		fprintf(stderr, "Executable page is at %p, or error %s\n",
 				(void*)state.executable_page, strerror(state.executable_page));
 
+	// Delete the executable buffer
+	make_syscall(state, extern_libc_base,
+			SYS_munmap, state.executable_page, MAP_LENGTH);
+
 	// Restore the registers from the backup
 	PCHECK(PTRACE_SETREGS, state.pid, 0, &state.regs_old);
+	// Detach
+	PCHECK(PTRACE_DETACH, state.pid, 0, 0);
 
 	return inject_error::none;
 }
