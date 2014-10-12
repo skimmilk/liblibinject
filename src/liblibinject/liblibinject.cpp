@@ -123,10 +123,10 @@ long make_syscall(const remote_state& state, long exec_base,
 
 	// The syscall has finished and mmap has been called
 	// Get the result of the syscall
-    PCHECK(PTRACE_GETREGS, state.pid, 0, &regs);
+	PCHECK(PTRACE_GETREGS, state.pid, 0, &regs);
 
-    // Restore the overwritten executable data
-    PCHECK(PTRACE_POKEDATA, state.pid, exec_base, backup);
+	// Restore the overwritten executable data
+	PCHECK(PTRACE_POKEDATA, state.pid, exec_base, backup);
 
 	return RESULT(regs);
 }
@@ -146,31 +146,31 @@ void get_external_offsets(bool verbose,
 		long local_libc_base, long extern_libc_base,
 		long& extern_dlopen, long& extern_syscall)
 {
-    // Get the offset of the functions __libc_dlopen_mode and syscall
-    //   in the process
-    long local_dlopen = (long)dlsym(0, "__libc_dlopen_mode");
-    long local_syscall = (long)dlsym(0, "syscall");
+	// Get the offset of the functions __libc_dlopen_mode and syscall
+	//   in the process
+	long local_dlopen = (long)dlsym(0, "__libc_dlopen_mode");
+	long local_syscall = (long)dlsym(0, "syscall");
 
-    extern_dlopen = local_dlopen - local_libc_base + extern_libc_base;
-    extern_syscall = local_syscall - local_libc_base + extern_libc_base;
+	extern_dlopen = local_dlopen - local_libc_base + extern_libc_base;
+	extern_syscall = local_syscall - local_libc_base + extern_libc_base;
 
-    if (verbose)
-    {
-    	fprintf(stderr, "Local libc is loaded at %p\n", (void*)local_libc_base);
-    	fprintf(stderr, "Local dlopen is at %p\n", (void*)local_dlopen);
-    	fprintf(stderr, "Local syscall is at %p\n", (void*)local_syscall);
+	if (verbose)
+	{
+		fprintf(stderr, "Local libc is loaded at %p\n", (void*)local_libc_base);
+		fprintf(stderr, "Local dlopen is at %p\n", (void*)local_dlopen);
+		fprintf(stderr, "Local syscall is at %p\n", (void*)local_syscall);
 
-    	fprintf(stderr, "Offset of dlopen is %p\n",
-    			(void*)(local_dlopen - local_libc_base));
-    	fprintf(stderr, "Offset of syscall is %p\n",
-    			(void*)(local_syscall - local_libc_base));
+		fprintf(stderr, "Offset of dlopen is %p\n",
+				(void*)(local_dlopen - local_libc_base));
+		fprintf(stderr, "Offset of syscall is %p\n",
+				(void*)(local_syscall - local_libc_base));
 
-    	fprintf(stderr, "External libc is loaded at %p\n",
-    			(void*)extern_syscall);
-    	fprintf(stderr,
-    			"External dlopen is at %p\nExternal syscall is at %p\n\n",
-    			(void*)extern_dlopen, (void*)extern_syscall);
-    }
+		fprintf(stderr, "External libc is loaded at %p\n",
+				(void*)extern_syscall);
+		fprintf(stderr,
+				"External dlopen is at %p\nExternal syscall is at %p\n\n",
+				(void*)extern_dlopen, (void*)extern_syscall);
+	}
 }
 
 inject_error create_remote_thread(pid_t pid, int verbose)
@@ -180,38 +180,38 @@ inject_error create_remote_thread(pid_t pid, int verbose)
 	state.pid = pid;
 
 	// Attach to the program
-    if (ptrace(PTRACE_ATTACH, pid, 0, 0) == -1)
-    {
-    	std::cerr << "Could not attach, are you sure ptrace_scope is disabled?\n";
-    	return inject_error::attach;
-    }
-    wait(0);
+	if (ptrace(PTRACE_ATTACH, pid, 0, 0) == -1)
+	{
+		std::cerr << "Could not attach, are you sure ptrace_scope is disabled?\n";
+		return inject_error::attach;
+	}
+	wait(0);
 
-    // Backup the registers
-    PCHECK(PTRACE_GETREGS, pid, 0, &state.regs_old);
+	// Backup the registers
+	PCHECK(PTRACE_GETREGS, pid, 0, &state.regs_old);
 
-    // Get the base of libc
-    long extern_libc_base = baseof(pid, "libc");
-    long local_libc_base = baseof(getpid(), "libc");
+	// Get the base of libc
+	long extern_libc_base = baseof(pid, "libc");
+	long local_libc_base = baseof(getpid(), "libc");
 
-    // Get the offsets of dlopen and syscall in the program's memory
-    long extern_dlopen, extern_syscall;
-    get_external_offsets(verbose, local_libc_base, extern_libc_base,
-    		extern_dlopen, extern_syscall);
+	// Get the offsets of dlopen and syscall in the program's memory
+	long extern_dlopen, extern_syscall;
+	get_external_offsets(verbose, local_libc_base, extern_libc_base,
+			extern_dlopen, extern_syscall);
 
-    // Get the location of libc in the attached program and in the current one
-    state.executable_page = make_syscall(state, extern_libc_base,
-    					SYS_mmap,
-    					0, MAP_LENGTH, PROT_READ | PROT_EXEC,
-    					MAP_ANONYMOUS | MAP_PRIVATE, 0);
-    if (verbose)
-    	fprintf(stderr, "Executable page is at %p, or error %s\n",
-    			(void*)state.executable_page, strerror(state.executable_page));
+	// Get the location of libc in the attached program and in the current one
+	state.executable_page = make_syscall(state, extern_libc_base,
+			SYS_mmap,
+			0, MAP_LENGTH, PROT_READ | PROT_EXEC,
+			MAP_ANONYMOUS | MAP_PRIVATE, 0);
+	if (verbose)
+		fprintf(stderr, "Executable page is at %p, or error %s\n",
+				(void*)state.executable_page, strerror(state.executable_page));
 
-    // Restore the registers from the backup
+	// Restore the registers from the backup
 	PCHECK(PTRACE_SETREGS, state.pid, 0, &state.regs_old);
 
-    return inject_error::none;
+	return inject_error::none;
 }
 
 };
