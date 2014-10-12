@@ -81,7 +81,7 @@ long baseof(pid_t pid, const std::string& libname)
 
 // Forces the attached program to make a syscall
 // Set up the program to do a syscall, but without doing so
-void inject_syscall(const remote_state& state, long exec_base)
+void setup_syscall(const remote_state& state, long exec_base)
 {
 	// This is the data that gets executed and makes a syscall
 	//long data = get_syscall_execution();
@@ -95,22 +95,43 @@ void inject_syscall(const remote_state& state, long exec_base)
 	PCHECK(PTRACE_SETREGS, state.pid, 0, &regs);
 }
 
+// Saves a part of the top of the stack, assumes empty backup
+void backup_stack(remote_state& state)
+{
+	long* top = (long*)STACK_TOP(state.regs_old);
+	for (int i = 0; i < 64; i++)
+	{
+		state.stack_backup.push_back(
+				ptrace(PTRACE_PEEKTEXT, state.pid, top - i, 0));
+	}
+}
+// Restores the stack and deletes the backup
+void restore_stack(remote_state& state)
+{
+	long* top = (long*)STACK_TOP(state.regs_old);
+	for (int i = 0; i < 64; i++)
+		PCHECK(PTRACE_POKEDATA, state.pid, top - i, state.stack_backup[i]);
+	state.stack_backup.clear();
+}
+
 // Make the program do a syscall
-long make_syscall(const remote_state& state, long exec_base,
+long make_syscall(remote_state& state, long exec_base,
 		long syscall_num,
 		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
 {
-	// This is the backup of the executable data being overwritten
-	long backup = ptrace(PTRACE_PEEKDATA, state.pid, exec_base, 0);
-
-	// Program's registers to set
 	user_regs_struct regs;
 
-	// Set up the program to do the syscall
-	inject_syscall(state, exec_base);
+	// This is the backup of the executable data
+	long backup = ptrace(PTRACE_PEEKDATA, state.pid, exec_base, 0);
+
+	// Backup the registers and stack
+	PCHECK(PTRACE_GETREGS, state.pid, 0, &state.regs_old);
+	backup_stack(state);
+
 
 	// Now the program is stuck right before the system call,
 	//   make it do the call
+	setup_syscall(state, exec_base);
 	set_syscall_arguments(state, syscall_num, a1, a2, a3, a4, a5, a6);
 
 	// Make it call the correct syscall
@@ -121,24 +142,17 @@ long make_syscall(const remote_state& state, long exec_base,
 	PCHECK(PTRACE_SYSCALL, state.pid, 0, 0);
 	wait(0);
 
-	// The syscall has finished and mmap has been called
-	// Get the result of the syscall
+	// The syscall has finished, get the result of the syscall
 	PCHECK(PTRACE_GETREGS, state.pid, 0, &regs);
 
 	// Restore the overwritten executable data
 	PCHECK(PTRACE_POKEDATA, state.pid, exec_base, backup);
 
-	return RESULT(regs);
-}
+	// Restore the registers and stack from backup
+	PCHECK(PTRACE_SETREGS, state.pid, 0, &state.regs_old);
+	restore_stack(state);
 
-// This function is injected into the program
-void external_call_dlopen(
-		std::function<void*(const char*,int)> extern_dlopen,
-		std::function<int(int)> extern_syscall,
-		const char* extern_filename)
-{
-	extern_dlopen(extern_filename, 0);
-	extern_syscall(1337);
+	return RESULT(regs);
 }
 
 // Get the offsets of dlopen and syscall in the process
@@ -165,11 +179,71 @@ void get_external_offsets(
 				(void*)(local_syscall - local_libc_base));
 
 		fprintf(stderr, "External libc is loaded at %p\n",
-				(void*)extern_syscall);
+				(void*)extern_libc_base);
 		fprintf(stderr,
 				"External dlopen is at %p\nExternal syscall is at %p\n\n",
 				(void*)extern_dlopen, (void*)extern_syscall);
 #endif
+}
+
+// copy amount of longs into process
+void extern_longcpy(pid_t pid, long* input, int amount, long* output)
+{
+	for (int i = 0; i < amount; i++)
+		PCHECK(PTRACE_POKEDATA, pid, (void*)(output + i), (void*)input[i]);
+}
+// Copy string into location ptr in external process
+void extern_strcpy(pid_t pid, const char* str, long ptr)
+{
+	// Amount of longs to copy, round up +1
+	int amount = (strlen(str) + sizeof(long)) / sizeof(long);
+	extern_longcpy(pid, (long*)str, amount, (long*)ptr);
+}
+
+// Force the process to call function
+void extern_call(remote_state& state, long fnptr,
+		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0)
+{
+	// Backup stack, registers
+	PCHECK(PTRACE_GETREGS, state.pid, 0, &state.regs_old);
+	backup_stack(state);
+
+	set_usercall_arguments(state,a1,a2,a3,a4,a5);
+
+	// Set the program counter to the function pointer
+	user_regs_struct regs;
+	PCHECK(PTRACE_GETREGS, state.pid, 0, &regs);
+	COUNTER(regs) = fnptr;
+	PCHECK(PTRACE_SETREGS, state.pid, 0, &regs);
+
+
+	// Wait for syscall(1337)
+	while (true)
+	{
+		PCHECK(PTRACE_SYSCALL, state.pid, 0, 0);
+		wait(0);
+		PCHECK(PTRACE_GETREGS, state.pid, 0, &regs);
+		if (ORIG_SYSCALL(regs) == 1337)
+			break;
+	}
+
+	// Let it fire the syscall and return back to normal
+	PCHECK(PTRACE_SYSCALL, state.pid, 0, 0);
+	wait(0);
+
+	// Restore stack, registers
+	PCHECK(PTRACE_SETREGS, state.pid, 0, &state.regs_old);
+	restore_stack(state);
+}
+
+// This function is injected into the program
+void external_call_dlopen(
+		void* (*extern_dlopen)(const char*, int),
+		int (*extern_syscall)(int),
+		const char* extern_filename)
+{
+	extern_dlopen(extern_filename, RTLD_NOW);
+	extern_syscall(1337);
 }
 
 inject_error create_remote_thread(pid_t pid, const char* libname)
@@ -182,9 +256,6 @@ inject_error create_remote_thread(pid_t pid, const char* libname)
 		return inject_error::attach;
 	wait(0);
 
-	// Backup the registers
-	PCHECK(PTRACE_GETREGS, pid, 0, &state.regs_old);
-
 	// Get the base of libc
 	long extern_libc_base = baseof(pid, "libc");
 	long local_libc_base = baseof(getpid(), "libc");
@@ -194,23 +265,44 @@ inject_error create_remote_thread(pid_t pid, const char* libname)
 	get_external_offsets(local_libc_base, extern_libc_base,
 			extern_dlopen, extern_syscall);
 
-	// Force the program to make a buffer for us to inject code into
+	// Force the program to make a buffer for us to inject code/data into
 	state.executable_page = make_syscall(state, extern_libc_base,
 			SYS_mmap,
 			0, MAP_LENGTH, PROT_READ | PROT_EXEC,
 			MAP_ANONYMOUS | MAP_PRIVATE, 0);
+
+	if (state.executable_page == (long)0xffffffffffffffda)
+	{
+		// This gets returned from a bad syscall for unknown reasons
+		PCHECK(PTRACE_SETREGS, state.pid, 0, &state.regs_old);
+		PCHECK(PTRACE_DETACH, state.pid, 0, 0);
+		return inject_error::interrupt;
+	}
 
 #ifdef DEBUG
 		fprintf(stderr, "Executable page is at %p, or error %s\n",
 				(void*)state.executable_page, strerror(state.executable_page));
 #endif
 
+	// Copy libname into the program's buffer
+	extern_strcpy(pid, libname, state.executable_page + 1024);
+
+#ifdef DEBUG
+	// Test the syscall and copy_mem function
+	make_syscall(state, extern_libc_base,
+			SYS_write, 2, state.executable_page + 1024, strlen(libname));
+#endif
+
+	// Copy the function to call into the buffer and make the process call it
+	extern_longcpy(pid, (long*)external_call_dlopen, 1024 / sizeof(long),
+			(long*)state.executable_page);
+	extern_call(state, state.executable_page,
+			extern_dlopen, extern_syscall, state.executable_page + 1024);
+
 	// Delete the executable buffer
 	make_syscall(state, extern_libc_base,
 			SYS_munmap, state.executable_page, MAP_LENGTH);
 
-	// Restore the registers from the backup
-	PCHECK(PTRACE_SETREGS, state.pid, 0, &state.regs_old);
 	// Detach
 	PCHECK(PTRACE_DETACH, state.pid, 0, 0);
 

@@ -39,6 +39,7 @@ struct remote_state
 #define COUNTER(m) m.rip
 #define INJECT_SYSCALL asm volatile (".align 8\t\nsyscall");
 #define RESULT(m) m.rax
+#define ORIG_SYSCALL(m) m.orig_rax
 // Sets the arguments to a system call
 void set_syscall_arguments(const remote_state& state, long syscall_n,
 		long a1, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
@@ -60,6 +61,22 @@ void set_syscall_arguments(const remote_state& state, long syscall_n,
 	// Set the registers
 	PCHECK(PTRACE_SETREGS, state.pid, 0, &newregs);
 }
+void set_usercall_arguments(const remote_state& state,
+		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0)
+{
+		user_regs_struct newregs;
+	PCHECK(PTRACE_GETREGS, state.pid, 0, &newregs);
+
+	// x86_64 rdi rsi rdx r8 r9 XMM0...
+	newregs.rdi = a1;
+	newregs.rsi = a2;
+	newregs.rdx = a3;
+	newregs.r8 = a4;
+	newregs.r9 = a5;
+
+	// Set the registers
+	PCHECK(PTRACE_SETREGS, state.pid, 0, &newregs);
+}
 #else
 // Intel32 low-level helpers
 #define FRAME_PTR(m) m.ebp
@@ -67,6 +84,7 @@ void set_syscall_arguments(const remote_state& state, long syscall_n,
 #define COUNTER(m) m.eip
 #define INJECT_SYSCALL asm volatile (".align 4\t\nint 0x80");
 #define RESULT(m) m.eax
+#define ORIG_SYSCALL(m) m.orig_eax
 void set_syscall_arguments(remote_state state, long syscall_n
 		long a1, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
 {}
