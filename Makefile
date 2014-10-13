@@ -16,7 +16,7 @@ DCOMPILE_FLAGS = -D DEBUG
 # Add additional include paths
 INCLUDES = -I $(SRC_PATH)/liblibinject
 # General linker settings
-LINK_FLAGS = -ldl
+LINK_FLAGS = -ldl -lpthread
 # Additional release-specific linker settings
 RLINK_FLAGS = 
 # Additional debug-specific linker settings

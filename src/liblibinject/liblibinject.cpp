@@ -23,6 +23,7 @@
 #include <error.h>
 #include <errno.h>
 #include <dlfcn.h>
+#include <pthread.h>
 
 // project includes
 #include "liblibinject.h"
@@ -33,13 +34,11 @@ namespace inject {
 
 // What happens (small version)
 // We attach to the program first
-// Then we write a call to syscall in assembly to a region of memory
-// The program is set to execute the modified region of memory
-// The application then continues to call the syscall and we intercept it
-// Intercepting the syscall, we make it call mmap and make
-//   another region of memory that we can play with
-// We inject the code we want in this region of memory
-// We restore the small region of memory to normal
+// Then we force the process to create a small executable buffer
+// We write code to the buffer that will load the library
+// We force the application to run the injected code
+// We force the application to run the library main function
+// Clean up and exit
 
 
 // Returns the location of libname in the attached application
@@ -115,6 +114,7 @@ void restore_stack(remote_state& state)
 }
 
 // Make the program do a syscall
+// Will backup & restore program state
 long make_syscall(remote_state& state, long exec_base,
 		long syscall_num,
 		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
@@ -156,34 +156,10 @@ long make_syscall(remote_state& state, long exec_base,
 }
 
 // Get the offsets of dlopen and syscall in the process
-void get_external_offsets(
-		long local_libc_base, long extern_libc_base,
-		long& extern_dlopen, long& extern_syscall)
+long get_offset(long local_base, long extern_base, const char* symbol)
 {
-	// Get the offset of the functions __libc_dlopen_mode and syscall
-	//   in the process
-	long local_dlopen = (long)dlsym(0, "__libc_dlopen_mode");
-	long local_syscall = (long)dlsym(0, "syscall");
-
-	extern_dlopen = local_dlopen - local_libc_base + extern_libc_base;
-	extern_syscall = local_syscall - local_libc_base + extern_libc_base;
-
-#ifdef DEBUG
-		fprintf(stderr, "Local libc is loaded at %p\n", (void*)local_libc_base);
-		fprintf(stderr, "Local dlopen is at %p\n", (void*)local_dlopen);
-		fprintf(stderr, "Local syscall is at %p\n", (void*)local_syscall);
-
-		fprintf(stderr, "Offset of dlopen is %p\n",
-				(void*)(local_dlopen - local_libc_base));
-		fprintf(stderr, "Offset of syscall is %p\n",
-				(void*)(local_syscall - local_libc_base));
-
-		fprintf(stderr, "External libc is loaded at %p\n",
-				(void*)extern_libc_base);
-		fprintf(stderr,
-				"External dlopen is at %p\nExternal syscall is at %p\n\n",
-				(void*)extern_dlopen, (void*)extern_syscall);
-#endif
+	long local_offset = (long)dlsym(0, symbol);
+	return local_offset - local_base + extern_base;
 }
 
 // copy amount of longs into process
@@ -201,19 +177,24 @@ void extern_strcpy(pid_t pid, const char* str, long ptr)
 }
 
 // Force the process to call function
-void extern_call(remote_state& state, long fnptr,
-		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0)
+// Will backup & restore program state
+void extern_call(remote_state& state, long* local_fn,
+		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
 {
+	// Write the function stored here to the process
+	extern_longcpy(state.pid, local_fn, 1024 / sizeof(long),
+			(long*)state.executable_page);
+
 	// Backup stack, registers
 	PCHECK(PTRACE_GETREGS, state.pid, 0, &state.regs_old);
 	backup_stack(state);
 
-	set_usercall_arguments(state,a1,a2,a3,a4,a5);
+	set_usercall_arguments(state,a1,a2,a3,a4,a5,a6);
 
 	// Set the program counter to the function pointer
 	user_regs_struct regs;
 	PCHECK(PTRACE_GETREGS, state.pid, 0, &regs);
-	COUNTER(regs) = fnptr;
+	COUNTER(regs) = state.executable_page;
 	PCHECK(PTRACE_SETREGS, state.pid, 0, &regs);
 
 
@@ -236,14 +217,45 @@ void extern_call(remote_state& state, long fnptr,
 	restore_stack(state);
 }
 
-// This function is injected into the program
+// This function is injected into the program to load a library
 void external_call_dlopen(
 		void* (*extern_dlopen)(const char*, int),
 		int (*extern_syscall)(int),
 		const char* extern_filename)
 {
-	extern_dlopen(extern_filename, RTLD_NOW);
+	extern_dlopen(extern_filename, RTLD_NOW | RTLD_GLOBAL);
 	extern_syscall(1337);
+}
+
+// Run the libmain function in the background
+void external_main(int (*extern_syscall)(...),
+		int (*extern_pt_create)(long*, pthread_attr_t*, void*, void*),
+		int (*extern_pt_attr_init)(pthread_attr_t*),
+		int (*pt_attr_setdetachstate)(pthread_attr_t*, int),
+		void* (*extern_dlsym)(int, const char*),
+		const char* fn_name)
+{
+	// Initialize the created thread as detached
+	pthread_attr_t tattr;
+	extern_pt_attr_init(&tattr);
+	pt_attr_setdetachstate(&tattr, PTHREAD_CREATE_DETACHED);
+
+	// Get the function to run in the background
+	void* libmain = extern_dlsym(0, fn_name);
+	long thread;
+	// Call the function in the background
+	int result = extern_pt_create(&thread, &tattr, libmain, NULL);
+	extern_syscall(1337);
+}
+
+void inject_library(remote_state& state, const char* name,
+		long extern_dlopen, long extern_syscall)
+{
+	// Copy libname into the program's buffer
+	extern_strcpy(state.pid, name, state.executable_page + 1024);
+
+	extern_call(state, (long*)external_call_dlopen,
+			extern_dlopen, extern_syscall, state.executable_page + 1024);
 }
 
 inject_error create_remote_thread(pid_t pid, const char* libname)
@@ -261,9 +273,10 @@ inject_error create_remote_thread(pid_t pid, const char* libname)
 	long local_libc_base = baseof(getpid(), "libc");
 
 	// Get the offsets of dlopen and syscall in the program's memory
-	long extern_dlopen, extern_syscall;
-	get_external_offsets(local_libc_base, extern_libc_base,
-			extern_dlopen, extern_syscall);
+	long extern_dlopen = get_offset(local_libc_base, extern_libc_base,
+			"__libc_dlopen_mode");
+	long extern_syscall = get_offset(local_libc_base, extern_libc_base,
+			"syscall");
 
 	// Force the program to make a buffer for us to inject code/data into
 	state.executable_page = make_syscall(state, extern_libc_base,
@@ -282,29 +295,41 @@ inject_error create_remote_thread(pid_t pid, const char* libname)
 #ifdef DEBUG
 		fprintf(stderr, "Executable page is at %p, or error %s\n",
 				(void*)state.executable_page, strerror(state.executable_page));
+		// Test syscall and strcpy
+		extern_strcpy(pid, "hello world\n", state.executable_page + 1024);
+		make_syscall(state, extern_libc_base, SYS_write, 1, state.executable_page + 1024, 12);
 #endif
 
-	// Copy libname into the program's buffer
-	extern_strcpy(pid, libname, state.executable_page + 1024);
+	// Inject the given library and others into the process
+	inject_library(state, libname, extern_dlopen, extern_syscall);
+	inject_library(state, "libpthread.so.0", extern_dlopen, extern_syscall);
+	inject_library(state, "libdl.so.2", extern_dlopen, extern_syscall);
 
-#ifdef DEBUG
-	// Test the syscall and copy_mem function
-	make_syscall(state, extern_libc_base,
-			SYS_write, 2, state.executable_page + 1024, strlen(libname));
-#endif
+	// Get necessary pthread functions
+	long extern_pthread_base = baseof(pid, "pthread");
+	long local_pthread_base = baseof(getpid(), "pthread");
+	long extern_ptcreate = get_offset(local_pthread_base, extern_pthread_base,
+			"pthread_create");
+	long extern_ptattrinit = get_offset(local_pthread_base, extern_pthread_base,
+			"pthread_attr_init");
+	long extern_ptattrset = get_offset(local_pthread_base, extern_pthread_base,
+			"pthread_attr_setdetachstate");
 
-	// Copy the function to call into the buffer and make the process call it
-	extern_longcpy(pid, (long*)external_call_dlopen, 1024 / sizeof(long),
-			(long*)state.executable_page);
-	extern_call(state, state.executable_page,
-			extern_dlopen, extern_syscall, state.executable_page + 1024);
+	// Get the dlsym function so the process can find the libmain function
+	long extern_dl_base = baseof(pid, "libdl");
+	long local_dl_base = baseof(getpid(), "libdl");
+	long extern_dlsym = get_offset(local_dl_base, extern_dl_base, "dlsym");
+
+	// Finally, copy the name of the library function to execute and run it
+	extern_strcpy(pid, "libmain", state.executable_page + 1024);
+	extern_call(state, (long*)external_main, extern_syscall, extern_ptcreate,
+			extern_ptattrinit, extern_ptattrset, extern_dlsym,
+			state.executable_page + 1024);
 
 	// Delete the executable buffer
 	make_syscall(state, extern_libc_base,
 			SYS_munmap, state.executable_page, MAP_LENGTH);
-
-	// Detach
-	PCHECK(PTRACE_DETACH, state.pid, 0, 0);
+	PCHECK(PTRACE_DETACH, pid, 0, 0);
 
 	return inject_error::none;
 }

@@ -62,17 +62,18 @@ void set_syscall_arguments(const remote_state& state, long syscall_n,
 	PCHECK(PTRACE_SETREGS, state.pid, 0, &newregs);
 }
 void set_usercall_arguments(const remote_state& state,
-		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0)
+		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
 {
 		user_regs_struct newregs;
 	PCHECK(PTRACE_GETREGS, state.pid, 0, &newregs);
 
-	// x86_64 rdi rsi rdx r8 r9 XMM0...
+	// x86_64 rdi rsi rdx rcx r8 r9 XMM0...
 	newregs.rdi = a1;
 	newregs.rsi = a2;
 	newregs.rdx = a3;
-	newregs.r8 = a4;
-	newregs.r9 = a5;
+	newregs.rcx = a4;
+	newregs.r8 = a5;
+	newregs.r9 = a6;
 
 	// Set the registers
 	PCHECK(PTRACE_SETREGS, state.pid, 0, &newregs);
