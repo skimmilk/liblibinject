@@ -9,3 +9,8 @@ void libmain()
 		sleep(3);
 	}
 }
+
+void hello()
+{
+	puts("moshi mosh");
+}
