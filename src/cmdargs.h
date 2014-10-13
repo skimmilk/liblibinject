@@ -20,6 +20,8 @@ struct inject_settings
 {
 	pid_t pid;
 	const char* libname;
+	// The name of the function to run, defaults to 'libmain'
+	const char* fn_name;
 };
 
 struct inject_settings* punstate;
@@ -28,6 +30,7 @@ static char doc[] =
 		"libinject - inject libraries into processes";
 
 static struct argp_option options[] = {
+		{"function", 'f', "NAME", 0, "The name of the library function to run", 0},
 		// The things I do to silence compiler warnings...
 		{0,0,0,0,0,0}
 };
@@ -37,6 +40,9 @@ error_t parse_opt (int key, char* arg, struct argp_state* state)
 	inject_settings* punstate = (inject_settings*)state->input;
 	switch (key)
 	{
+	case 'f':
+		punstate->fn_name = arg;
+		break;
 	case ARGP_KEY_ARG:
 		if (state->arg_num > 1)
 			argp_usage(state);

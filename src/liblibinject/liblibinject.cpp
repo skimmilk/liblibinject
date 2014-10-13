@@ -244,7 +244,7 @@ void external_main(int (*extern_syscall)(...),
 	void* libmain = extern_dlsym(0, fn_name);
 	long thread;
 	// Call the function in the background
-	int result = extern_pt_create(&thread, &tattr, libmain, NULL);
+	extern_pt_create(&thread, &tattr, libmain, NULL);
 	extern_syscall(1337);
 }
 
@@ -258,10 +258,17 @@ void inject_library(remote_state& state, const char* name,
 			extern_dlopen, extern_syscall, state.executable_page + 1024);
 }
 
-inject_error create_remote_thread(pid_t pid, const char* libname)
+inject_error create_remote_thread(pid_t pid, const char* libname,
+		const char* libmain)
 {
 	remote_state state;
 	state.pid = pid;
+
+	// Don't continue if libname or fn_name is too long and can't be copied
+	if (strlen(libname) >= 1023)
+		return inject_error::path;
+	if (libmain && strlen(libmain) >= 1023)
+		return inject_error::path;
 
 	// Attach to the program
 	if (ptrace(PTRACE_ATTACH, pid, 0, 0) == -1)
@@ -321,7 +328,9 @@ inject_error create_remote_thread(pid_t pid, const char* libname)
 	long extern_dlsym = get_offset(local_dl_base, extern_dl_base, "dlsym");
 
 	// Finally, copy the name of the library function to execute and run it
-	extern_strcpy(pid, "libmain", state.executable_page + 1024);
+	libmain = libmain? libmain : "libmain";
+	extern_strcpy(pid, libmain, state.executable_page + 1024);
+
 	extern_call(state, (long*)external_main, extern_syscall, extern_ptcreate,
 			extern_ptattrinit, extern_ptattrset, extern_dlsym,
 			state.executable_page + 1024);
