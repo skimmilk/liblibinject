@@ -156,10 +156,10 @@ long make_syscall(remote_state& state, long exec_base,
 }
 
 // Get the offsets of dlopen and syscall in the process
-long get_offset(long local_base, long extern_base, const char* symbol)
+long get_offset(const char* lib, pid_t pid, const char* symbol)
 {
 	long local_offset = (long)dlsym(0, symbol);
-	return local_offset - local_base + extern_base;
+	return local_offset - baseof(getpid(), lib) + baseof(pid, lib);
 }
 
 // copy amount of longs into process
@@ -275,15 +275,12 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 		return inject_error::attach;
 	wait(0);
 
-	// Get the base of libc
+	// Get the base of libc, needed for make_syscall
 	long extern_libc_base = baseof(pid, "libc");
-	long local_libc_base = baseof(getpid(), "libc");
 
 	// Get the offsets of dlopen and syscall in the program's memory
-	long extern_dlopen = get_offset(local_libc_base, extern_libc_base,
-			"__libc_dlopen_mode");
-	long extern_syscall = get_offset(local_libc_base, extern_libc_base,
-			"syscall");
+	long extern_dlopen = get_offset("libc", pid, "__libc_dlopen_mode");
+	long extern_syscall = get_offset("libc", pid, "syscall");
 
 	// Force the program to make a buffer for us to inject code/data into
 	state.executable_page = make_syscall(state, extern_libc_base,
@@ -313,19 +310,13 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 	inject_library(state, "libdl.so.2", extern_dlopen, extern_syscall);
 
 	// Get necessary pthread functions
-	long extern_pthread_base = baseof(pid, "pthread");
-	long local_pthread_base = baseof(getpid(), "pthread");
-	long extern_ptcreate = get_offset(local_pthread_base, extern_pthread_base,
-			"pthread_create");
-	long extern_ptattrinit = get_offset(local_pthread_base, extern_pthread_base,
-			"pthread_attr_init");
-	long extern_ptattrset = get_offset(local_pthread_base, extern_pthread_base,
+	long extern_ptcreate = get_offset("pthread", pid, "pthread_create");
+	long extern_ptattrinit = get_offset("pthread", pid, "pthread_attr_init");
+	long extern_ptattrset = get_offset("pthread", pid,
 			"pthread_attr_setdetachstate");
 
 	// Get the dlsym function so the process can find the libmain function
-	long extern_dl_base = baseof(pid, "libdl");
-	long local_dl_base = baseof(getpid(), "libdl");
-	long extern_dlsym = get_offset(local_dl_base, extern_dl_base, "dlsym");
+	long extern_dlsym = get_offset("libdl", pid, "dlsym");
 
 	// Finally, copy the name of the library function to execute and run it
 	libmain = libmain? libmain : "libmain";
