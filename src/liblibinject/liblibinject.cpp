@@ -58,7 +58,7 @@ long baseof(pid_t pid, const std::string& libname)
 	std::string line;
 	long base_ptr = 0;
 	// each line in maps file is laid out this way
-	// <base ptr>-<end ptr> <permissions, rwxp> <ignore> <ignore> <ignore> /path/to/library.so
+	// <base ptr>-<end ptr> <permissions> <ignore> <ignore> <ignore> lib.so
 	while (std::getline(proc_file, line))
 	{
 		// Does this line describe where libname is?
@@ -71,6 +71,7 @@ long baseof(pid_t pid, const std::string& libname)
 		if (position == line.npos)
 			continue;
 
+		// Get the base pointer
 		std::string map_begin = line.substr(0, line.find('-'));
 		base_ptr = std::stoul(map_begin, nullptr, 16);
 	}
@@ -82,11 +83,8 @@ long baseof(pid_t pid, const std::string& libname)
 // Set up the program to do a syscall, but without doing so
 void setup_syscall(const remote_state& state, long exec_base)
 {
-	// This is the data that gets executed and makes a syscall
-	//long data = get_syscall_execution();
-	unsigned char sis [8]{0x0f, 0x05, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
-	long data = *(long*)sis;
-
+	// Shellcode to inject, shellcode calls syscall interrupt
+	long data = SHELL_SYSCALL;
 	PCHECK(PTRACE_POKEDATA, state.pid, exec_base, data);
 
 	auto regs = state.regs_old;
@@ -99,10 +97,8 @@ void backup_stack(remote_state& state)
 {
 	long* top = (long*)STACK_TOP(state.regs_old);
 	for (int i = 0; i < 64; i++)
-	{
 		state.stack_backup.push_back(
 				ptrace(PTRACE_PEEKTEXT, state.pid, top - i, 0));
-	}
 }
 // Restores the stack and deletes the backup
 void restore_stack(remote_state& state)
@@ -128,11 +124,10 @@ long make_syscall(remote_state& state, long exec_base,
 	PCHECK(PTRACE_GETREGS, state.pid, 0, &state.regs_old);
 	backup_stack(state);
 
-
 	// Now the program is stuck right before the system call,
 	//   make it do the call
 	setup_syscall(state, exec_base);
-	set_syscall_arguments(state, syscall_num, a1, a2, a3, a4, a5, a6);
+	set_syscall_arguments(state.pid, syscall_num, a1, a2, a3, a4, a5, a6);
 
 	// Make it call the correct syscall
 	PCHECK(PTRACE_SYSCALL, state.pid, 0, 0);
@@ -189,7 +184,7 @@ void extern_call(remote_state& state, long* local_fn,
 	PCHECK(PTRACE_GETREGS, state.pid, 0, &state.regs_old);
 	backup_stack(state);
 
-	set_usercall_arguments(state,a1,a2,a3,a4,a5,a6);
+	set_usercall_arguments(state.pid,a1,a2,a3,a4,a5,a6);
 
 	// Set the program counter to the function pointer
 	user_regs_struct regs;
@@ -301,7 +296,8 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 				(void*)state.executable_page, strerror(state.executable_page));
 		// Test syscall and strcpy
 		extern_strcpy(pid, "hello world\n", state.executable_page + 1024);
-		make_syscall(state, extern_libc_base, SYS_write, 1, state.executable_page + 1024, 12);
+		make_syscall(state, extern_libc_base, SYS_write, 1,
+				state.executable_page + 1024, 12);
 #endif
 
 	// Inject the given library and others into the process

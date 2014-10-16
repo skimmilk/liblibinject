@@ -37,15 +37,16 @@ struct remote_state
 #define STACK_TOP(m) m.rsp
 // Pointer to the current execution location
 #define COUNTER(m) m.rip
-#define INJECT_SYSCALL asm volatile (".align 8\t\nsyscall");
 #define RESULT(m) m.rax
 #define ORIG_SYSCALL(m) m.orig_rax
+// Shellcode for syscall
+#define SHELL_SYSCALL 0x050f
 // Sets the arguments to a system call
-void set_syscall_arguments(const remote_state& state, long syscall_n,
-		long a1, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
+void set_syscall_arguments(pid_t pid, long syscall_n,
+		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
 {
 	user_regs_struct newregs;
-	PCHECK(PTRACE_GETREGS, state.pid, 0, &newregs);
+	PCHECK(PTRACE_GETREGS, pid, 0, &newregs);
 
 	// x86_64 rdi rsi rdx r10 r8 r9
 	newregs.rdi = a1;
@@ -59,13 +60,13 @@ void set_syscall_arguments(const remote_state& state, long syscall_n,
 	newregs.rax = newregs.orig_rax = syscall_n;
 
 	// Set the registers
-	PCHECK(PTRACE_SETREGS, state.pid, 0, &newregs);
+	PCHECK(PTRACE_SETREGS, pid, 0, &newregs);
 }
-void set_usercall_arguments(const remote_state& state,
+void set_usercall_arguments(pid_t pid,
 		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
 {
-		user_regs_struct newregs;
-	PCHECK(PTRACE_GETREGS, state.pid, 0, &newregs);
+	user_regs_struct newregs;
+	PCHECK(PTRACE_GETREGS, pid, 0, &newregs);
 
 	// x86_64 rdi rsi rdx rcx r8 r9 XMM0...
 	newregs.rdi = a1;
@@ -76,19 +77,48 @@ void set_usercall_arguments(const remote_state& state,
 	newregs.r9 = a6;
 
 	// Set the registers
-	PCHECK(PTRACE_SETREGS, state.pid, 0, &newregs);
+	PCHECK(PTRACE_SETREGS, pid, 0, &newregs);
 }
 #else
 // Intel32 low-level helpers
 #define FRAME_PTR(m) m.ebp
 #define STACK_TOP(m) m.esp
 #define COUNTER(m) m.eip
-#define INJECT_SYSCALL asm volatile (".align 4\t\nint 0x80");
 #define RESULT(m) m.eax
 #define ORIG_SYSCALL(m) m.orig_eax
-void set_syscall_arguments(remote_state state, long syscall_n
-		long a1, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
-{}
+#define SHELL_SYSCALL 0x80CD
+// http://esec-lab.sogeti.com/post/2011/07/05/Linux-syscall-ABI
+void set_syscall_arguments(pid_t pid, long syscall_n
+		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
+{
+	user_regs_struct newregs;
+	PCHECK(PTRACE_GETREGS, pid, 0, &newregs);
+
+	// i386 ebx ecx edx esi edi ebp
+	newregs.ebx = a1;
+	newregs.ecx = a2;
+	newregs.edx = a3;
+	newregs.esi = a4;
+	newregs.edi = a5;
+	newregs.ebp = a6;
+
+	PCHECK(PTRACE_SETREGS, pid, 0, &newregs);
+}
+void set_usercall_arguments(pid_t pid,
+		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
+{
+	user_regs_struct newregs;
+	PCHECK(PTRACE_GETREGS, state.pid, 0, &newregs);
+
+	// Arguments start at ebp+8 (two ints are pushed on to the stack already)
+	long* argptr = (long*)newregs.ebp + 2;
+	PCHECK(PTRACE_POKEDATA, pid, argptr++, a1);
+	PCHECK(PTRACE_POKEDATA, pid, argptr++, a2);
+	PCHECK(PTRACE_POKEDATA, pid, argptr++, a3);
+	PCHECK(PTRACE_POKEDATA, pid, argptr++, a4);
+	PCHECK(PTRACE_POKEDATA, pid, argptr++, a5);
+	PCHECK(PTRACE_POKEDATA, pid, argptr++, a6);
+}
 #endif
 
 } /* namespace inject */
