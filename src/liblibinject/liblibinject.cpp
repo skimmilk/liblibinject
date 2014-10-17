@@ -24,6 +24,7 @@
 #include <errno.h>
 #include <dlfcn.h>
 #include <pthread.h>
+#include <linux/limits.h>
 
 // project includes
 #include "liblibinject.h"
@@ -259,10 +260,26 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 	remote_state state;
 	state.pid = pid;
 
+	// Get the full path to libname if it doesn't start with /
+	std::string library_path;
+	if (libname[0] != '/')
+	{
+		char buf[PATH_MAX];
+		if (!getcwd(buf, PATH_MAX))
+			return inject_error::path;
+
+		library_path = buf;
+		library_path += "/";
+		library_path += libname;
+	}
+	else
+		library_path = libname;
+
 	// Don't continue if libname or fn_name is too long and can't be copied
-	if (strlen(libname) >= 1023)
+	const size_t max_strlen = MAP_LENGTH / 2 - 1;
+	if (library_path.length() >= max_strlen)
 		return inject_error::path;
-	if (libmain && strlen(libmain) >= 1023)
+	if (libmain && strlen(libmain) >= max_strlen)
 		return inject_error::path;
 
 	// Attach to the program
@@ -285,7 +302,7 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 
 	if (state.executable_page == (long)0xffffffffffffffda)
 	{
-		// This gets returned from a bad syscall for unknown reasons
+		// Returned from processes that are SIGSTOP'ed for unknown reasons
 		PCHECK(PTRACE_SETREGS, state.pid, 0, &state.regs_old);
 		PCHECK(PTRACE_DETACH, state.pid, 0, 0);
 		return inject_error::interrupt;
@@ -301,7 +318,7 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 #endif
 
 	// Inject the given library and others into the process
-	inject_library(state, libname, extern_dlopen, extern_syscall);
+	inject_library(state, library_path.c_str(), extern_dlopen, extern_syscall);
 	inject_library(state, "libpthread.so.0", extern_dlopen, extern_syscall);
 	inject_library(state, "libdl.so.2", extern_dlopen, extern_syscall);
 
