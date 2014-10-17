@@ -88,7 +88,7 @@ void set_usercall_arguments(pid_t pid,
 #define ORIG_SYSCALL(m) m.orig_eax
 #define SHELL_SYSCALL 0x80CD
 // http://esec-lab.sogeti.com/post/2011/07/05/Linux-syscall-ABI
-void set_syscall_arguments(pid_t pid, long syscall_n
+void set_syscall_arguments(pid_t pid, long syscall_n,
 		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
 {
 	user_regs_struct newregs;
@@ -102,13 +102,15 @@ void set_syscall_arguments(pid_t pid, long syscall_n
 	newregs.edi = a5;
 	newregs.ebp = a6;
 
+	newregs.eax = newregs.orig_eax = syscall_n;
+
 	PCHECK(PTRACE_SETREGS, pid, 0, &newregs);
 }
 void set_usercall_arguments(pid_t pid,
 		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
 {
 	user_regs_struct newregs;
-	PCHECK(PTRACE_GETREGS, state.pid, 0, &newregs);
+	PCHECK(PTRACE_GETREGS, pid, 0, &newregs);
 
 	// Arguments start at ebp+8 (two ints are pushed on to the stack already)
 	long* argptr = (long*)newregs.ebp + 2;
