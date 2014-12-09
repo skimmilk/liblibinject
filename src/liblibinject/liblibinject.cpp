@@ -308,10 +308,6 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 		return inject_error::attach;
 	wait(0);
 
-	// Get the offsets of dlopen and syscall in the program's memory
-	long extern_dlopen = get_offset("libc", pid, "__libc_dlopen_mode");
-	long extern_syscall = get_offset("libc", pid, "syscall");
-
 	// Force the program to make a buffer for us to inject code/data into
 	state.executable_page = make_syscall(state,
 			SYS_mmap,
@@ -334,6 +330,10 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 		make_syscall(state, extern_libc_base, SYS_write, 1,
 				state.executable_page + 1024, 12);
 #endif
+
+	// Get the offsets of dlopen and syscall in the program's memory
+	long extern_dlopen = get_offset("libc", pid, "__libc_dlopen_mode");
+	long extern_syscall = get_offset("libc", pid, "syscall");
 
 	// Inject the given library and others into the process
 	inject_library(state, library_path.c_str(), extern_dlopen, extern_syscall);
