@@ -112,11 +112,14 @@ void restore_stack(remote_state& state)
 
 // Make the program do a syscall
 // Will backup & restore program state
-long make_syscall(remote_state& state, long exec_base,
+long make_syscall(remote_state& state,
 		long syscall_num,
 		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
 {
 	user_regs_struct regs;
+
+	// Location of libc in process, needed to find syscall shellcode
+	auto exec_base = baseof(state.pid, "libc");
 
 	// This is the backup of the executable data
 	long backup = ptrace(PTRACE_PEEKDATA, state.pid, exec_base, 0);
@@ -254,19 +257,16 @@ void inject_library(remote_state& state, const char* name,
 			extern_dlopen, extern_syscall, state.executable_page + 1024);
 }
 
-inject_error create_remote_thread(pid_t pid, const char* libname,
-		const char* libmain)
+// Returns true if error
+// Sets library_path to full path to libname
+bool library_full_path(const char* libname, std::string& library_path)
 {
-	remote_state state;
-	state.pid = pid;
-
 	// Get the full path to libname if it doesn't start with /
-	std::string library_path;
 	if (libname[0] != '/')
 	{
 		char buf[PATH_MAX];
 		if (!getcwd(buf, PATH_MAX))
-			return inject_error::path;
+			return true;
 
 		library_path = buf;
 		library_path += "/";
@@ -274,12 +274,33 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 	}
 	else
 		library_path = libname;
+	return false;
+}
 
+// Return true if name of library or function is invalid
+bool check_lib_strs(const std::string& library_path, const char* libmain)
+{
 	// Don't continue if libname or fn_name is too long and can't be copied
 	const size_t max_strlen = MAP_LENGTH / 2 - 1;
 	if (library_path.length() >= max_strlen)
-		return inject_error::path;
+		return true;
 	if (libmain && strlen(libmain) >= max_strlen)
+		return true;
+	return false;
+}
+inject_error create_remote_thread(pid_t pid, const char* libname,
+		const char* libmain)
+{
+	remote_state state;
+	state.pid = pid;
+
+	// Get the full path of program
+	std::string library_path;
+	if (library_full_path(libname, library_path))
+		return inject_error::path;
+
+	// Check if strings are copyable
+	if (check_lib_strs(library_path, libmain))
 		return inject_error::path;
 
 	// Attach to the program
@@ -287,15 +308,12 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 		return inject_error::attach;
 	wait(0);
 
-	// Get the base of libc, needed for make_syscall
-	long extern_libc_base = baseof(pid, "libc");
-
 	// Get the offsets of dlopen and syscall in the program's memory
 	long extern_dlopen = get_offset("libc", pid, "__libc_dlopen_mode");
 	long extern_syscall = get_offset("libc", pid, "syscall");
 
 	// Force the program to make a buffer for us to inject code/data into
-	state.executable_page = make_syscall(state, extern_libc_base,
+	state.executable_page = make_syscall(state,
 			SYS_mmap,
 			0, MAP_LENGTH, PROT_READ | PROT_EXEC,
 			MAP_ANONYMOUS | MAP_PRIVATE, 0);
@@ -340,7 +358,7 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 			state.executable_page + 1024);
 
 	// Delete the executable buffer
-	make_syscall(state, extern_libc_base,
+	make_syscall(state,
 			SYS_munmap, state.executable_page, MAP_LENGTH);
 	PCHECK(PTRACE_DETACH, pid, 0, 0);
 
