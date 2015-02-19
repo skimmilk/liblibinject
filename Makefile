@@ -7,8 +7,10 @@ CXX ?= g++
 SRC_EXT = cpp
 # Path to the source directory, relative to the makefile
 SRC_PATH = src
+# To specify 32-bit compilation on x86_64, remove the comment
+BITS32 = #-m32
 # General compiler flags
-COMPILE_FLAGS = -std=c++0x -Wall -Wextra -g
+COMPILE_FLAGS = -std=c++0x -Wall -Wextra -g $(BITS32)
 # Additional release-specific flags
 RCOMPILE_FLAGS = -D NDEBUG
 # Additional debug-specific flags
@@ -16,7 +18,7 @@ DCOMPILE_FLAGS = -D DEBUG
 # Add additional include paths
 INCLUDES = -I $(SRC_PATH)/liblibinject
 # General linker settings
-LINK_FLAGS = -ldl -lpthread
+LINK_FLAGS = -ldl -lpthread $(BITS32)
 # Additional release-specific linker settings
 RLINK_FLAGS = 
 # Additional debug-specific linker settings

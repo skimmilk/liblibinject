@@ -112,14 +112,16 @@ void set_usercall_arguments(pid_t pid,
 	user_regs_struct newregs;
 	PCHECK(PTRACE_GETREGS, pid, 0, &newregs);
 
-	// Arguments start at ebp+8 (two ints are pushed on to the stack already)
-	long* argptr = (long*)newregs.ebp + 2;
+	long* argptr = (long*)newregs.ebp + 1;
+	newregs.esp = newregs.ebp;
 	PCHECK(PTRACE_POKEDATA, pid, argptr++, a1);
 	PCHECK(PTRACE_POKEDATA, pid, argptr++, a2);
 	PCHECK(PTRACE_POKEDATA, pid, argptr++, a3);
 	PCHECK(PTRACE_POKEDATA, pid, argptr++, a4);
 	PCHECK(PTRACE_POKEDATA, pid, argptr++, a5);
 	PCHECK(PTRACE_POKEDATA, pid, argptr++, a6);
+
+	PCHECK(PTRACE_SETREGS, pid, 0, &newregs);
 }
 #endif
 

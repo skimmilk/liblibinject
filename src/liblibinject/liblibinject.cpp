@@ -308,9 +308,15 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 		return inject_error::attach;
 	wait(0);
 
+#ifdef __x86_64__
+	const int syscall_mmap = SYS_mmap;
+#else
+	const int syscall_mmap = SYS_mmap2;
+#endif
+
 	// Force the program to make a buffer for us to inject code/data into
 	state.executable_page = make_syscall(state,
-			SYS_mmap,
+			syscall_mmap,
 			0, MAP_LENGTH, PROT_READ | PROT_EXEC,
 			MAP_ANONYMOUS | MAP_PRIVATE, 0);
 
@@ -327,7 +333,7 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 				(void*)state.executable_page, strerror(state.executable_page));
 		// Test syscall and strcpy
 		extern_strcpy(pid, "hello world\n", state.executable_page + 1024);
-		make_syscall(state, extern_libc_base, SYS_write, 1,
+		make_syscall(state, SYS_write, 1,
 				state.executable_page + 1024, 12);
 #endif
 
