@@ -96,16 +96,16 @@ void setup_syscall(const remote_state& state, long exec_base)
 // Saves a part of the top of the stack, assumes empty backup
 void backup_stack(remote_state& state)
 {
-	long* top = (long*)STACK_TOP(state.regs_old);
-	for (int i = 0; i < 64; i++)
+	long* top = (long*)STACK_TOP(state.regs_old) + 64;
+	for (int i = 0; i < 128; i++)
 		state.stack_backup.push_back(
 				ptrace(PTRACE_PEEKTEXT, state.pid, top - i, 0));
 }
 // Restores the stack and deletes the backup
 void restore_stack(remote_state& state)
 {
-	long* top = (long*)STACK_TOP(state.regs_old);
-	for (int i = 0; i < 64; i++)
+	long* top = (long*)STACK_TOP(state.regs_old) + 64;
+	for (int i = 0; i < 128; i++)
 		PCHECK(PTRACE_POKEDATA, state.pid, top - i, state.stack_backup[i]);
 	state.stack_backup.clear();
 }
