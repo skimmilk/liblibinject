@@ -5,3 +5,5 @@ Debug/
 bin/
 build/
 libinject
+example/libhelloworld.so
+example/libhelloworld32.so
