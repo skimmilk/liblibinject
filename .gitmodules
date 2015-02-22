@@ -1,0 +1,3 @@
+[submodule "cppchannel"]
+	path = cppchannel
+	url = https://github.com/skimmilk/cppchannel

@@ -29,6 +29,7 @@
 // project includes
 #include "liblibinject.h"
 #include "multiarch.h"
+#include "libdeps.h"
 
 
 namespace inject {
@@ -288,6 +289,34 @@ bool check_lib_strs(const std::string& library_path, const char* libmain)
 		return true;
 	return false;
 }
+
+// Return a list of library paths
+bool generate_sorted_dependencies(const std::string& name,
+		std::vector<std::string>& result)
+{
+	// Get all the libraries the library depends on
+	std::set<std::string> dependencies;
+	if (library_dependencies(name, dependencies))
+		return true;
+
+	// Insert our dependencies, libdl and libpthread
+#ifdef __x86_64__
+	dependencies.insert("/lib/x86_64-linux-gnu/libdl.so.2");
+	dependencies.insert("/lib/x86_64-linux-gnu/libpthread.so.0");
+#else
+	dependencies.insert("/lib/i386-linux-gnu/libpthread.so.0");
+	dependencies.insert("/lib/i386-linux-gnu/libdl.so.2");
+#endif
+
+	// Sort the dependencies
+	result = sort_dependencies(dependencies);
+#ifdef DEBUG
+	for (const auto& a : result)
+		std::cerr << "Injection depends on " << a << "\n";
+#endif
+	return false;
+}
+
 inject_error create_remote_thread(pid_t pid, const char* libname,
 		const char* libmain)
 {
@@ -297,6 +326,11 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 	// Get the full path of program
 	std::string library_path;
 	if (library_full_path(libname, library_path))
+		return inject_error::path;
+
+	// Get the dependences for the library to be injected
+	std::vector<std::string> dependencies;
+	if (generate_sorted_dependencies(library_path, dependencies))
 		return inject_error::path;
 
 	// Check if strings are copyable
@@ -341,10 +375,10 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 	long extern_dlopen = get_offset("libc", pid, "__libc_dlopen_mode");
 	long extern_syscall = get_offset("libc", pid, "syscall");
 
-	// Inject the given library and others into the process
+	// Inject the given library and other libraries that we need into the process
+	for (const auto& dep : dependencies)
+		inject_library(state, dep.c_str(), extern_dlopen, extern_syscall);
 	inject_library(state, library_path.c_str(), extern_dlopen, extern_syscall);
-	inject_library(state, "libpthread.so.0", extern_dlopen, extern_syscall);
-	inject_library(state, "libdl.so.2", extern_dlopen, extern_syscall);
 
 	// Get necessary pthread functions
 	long extern_ptcreate = get_offset("pthread", pid, "pthread_create");

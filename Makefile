@@ -10,13 +10,13 @@ SRC_PATH = src
 # To specify 32-bit compilation on x86_64, remove the comment
 BITS32 = #-m32
 # General compiler flags
-COMPILE_FLAGS = -std=c++0x -Wall -Wextra -g $(BITS32)
+COMPILE_FLAGS = -std=c++0x -Wall -Wextra -g $(BITS32) -Wfatal-errors
 # Additional release-specific flags
 RCOMPILE_FLAGS = -D NDEBUG
 # Additional debug-specific flags
 DCOMPILE_FLAGS = -D DEBUG
 # Add additional include paths
-INCLUDES = -I $(SRC_PATH)/liblibinject
+INCLUDES = -I $(SRC_PATH)/liblibinject -I./cppchannel/src
 # General linker settings
 LINK_FLAGS = -ldl -lpthread $(BITS32)
 # Additional release-specific linker settings
