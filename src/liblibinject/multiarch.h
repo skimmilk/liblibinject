@@ -3,6 +3,7 @@
  *
  *  Created on: Oct 10, 2014
  *      Author: skim
+ * Purpose: To be used by ptrace.cpp only
  */
 
 #ifndef MULTIARCH_H_
@@ -10,28 +11,9 @@
 
 namespace inject{
 
-// Stores information about the attached application
-struct remote_state
-{
-	// PID of the application to mess with
-	pid_t pid;
-	// The backup registers of the program
-	user_regs_struct regs_old;
-	// Where we mapped the region to inject code
-	long executable_page;
-	// The backup of the stack
-	std::vector<long> stack_backup;
-};
-
-
 #define PCHECK(a,b,c,d) {if (ptrace(a,b,c,d)) error(1, errno, __FILE__ ":%d", __LINE__);}
 
-// length of the executable buffer in the attached application
-#define MAP_LENGTH (sysconf(_SC_PAGESIZE))
-
-
 #ifdef __x86_64__
-#define LIB_FLDR "/lib/x86_64-linux-gnu"
 // AMD64 low-level helpers
 // Pointer to the stack frame
 #define FRAME_PTR(m) m.rbp
@@ -43,7 +25,7 @@ struct remote_state
 // Shellcode for syscall
 #define SHELL_SYSCALL 0x050f
 // Sets the arguments to a system call
-void set_syscall_arguments(pid_t pid, long syscall_n,
+static void set_syscall_arguments(pid_t pid, long syscall_n,
 		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
 {
 	user_regs_struct newregs;
@@ -63,7 +45,7 @@ void set_syscall_arguments(pid_t pid, long syscall_n,
 	// Set the registers
 	PCHECK(PTRACE_SETREGS, pid, 0, &newregs);
 }
-void set_usercall_arguments(pid_t pid,
+static void set_usercall_arguments(pid_t pid,
 		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
 {
 	user_regs_struct newregs;
@@ -81,7 +63,6 @@ void set_usercall_arguments(pid_t pid,
 	PCHECK(PTRACE_SETREGS, pid, 0, &newregs);
 }
 #else
-#define LIB_FLDR "/lib/i386-linux-gnu"
 // Intel32 low-level helpers
 #define FRAME_PTR(m) m.ebp
 #define STACK_TOP(m) m.esp
@@ -90,7 +71,7 @@ void set_usercall_arguments(pid_t pid,
 #define ORIG_SYSCALL(m) m.orig_eax
 #define SHELL_SYSCALL 0x80CD
 // http://esec-lab.sogeti.com/post/2011/07/05/Linux-syscall-ABI
-void set_syscall_arguments(pid_t pid, long syscall_n,
+static void set_syscall_arguments(pid_t pid, long syscall_n,
 		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
 {
 	user_regs_struct newregs;
@@ -108,7 +89,7 @@ void set_syscall_arguments(pid_t pid, long syscall_n,
 
 	PCHECK(PTRACE_SETREGS, pid, 0, &newregs);
 }
-void set_usercall_arguments(pid_t pid,
+static void set_usercall_arguments(pid_t pid,
 		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0)
 {
 	user_regs_struct newregs;

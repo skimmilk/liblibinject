@@ -13,10 +13,10 @@
 namespace inject {
 
 enum class inject_error {
-	none, attach, interrupt, path
+	none, attach, path
 	// attach signals that we cannot use ptrace against the process
-	// interrupt signals that the program is not in a modifiable state
 	// path signals that the length of libname or function is too long
+	//   or a library does not exist at that location
 };
 
 // libname is the path to the library to inject
