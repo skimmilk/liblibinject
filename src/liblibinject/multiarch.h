@@ -31,6 +31,7 @@ struct remote_state
 
 
 #ifdef __x86_64__
+#define LIB_FLDR "/lib/x86_64-linux-gnu"
 // AMD64 low-level helpers
 // Pointer to the stack frame
 #define FRAME_PTR(m) m.rbp
@@ -80,6 +81,7 @@ void set_usercall_arguments(pid_t pid,
 	PCHECK(PTRACE_SETREGS, pid, 0, &newregs);
 }
 #else
+#define LIB_FLDR "/lib/i386-linux-gnu"
 // Intel32 low-level helpers
 #define FRAME_PTR(m) m.ebp
 #define STACK_TOP(m) m.esp

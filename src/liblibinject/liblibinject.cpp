@@ -158,7 +158,10 @@ long make_syscall(remote_state& state,
 // Get the offsets of dlopen and syscall in the process
 long get_offset(const char* lib, pid_t pid, const char* symbol)
 {
-	long local_offset = (long)dlsym(0, symbol);
+	void* handle = dlopen(lib, RTLD_LAZY);
+	if (!handle)
+		puts(dlerror());
+	long local_offset = (long)dlsym(handle, symbol);
 	return local_offset - baseof(getpid(), lib) + baseof(pid, lib);
 }
 
@@ -300,13 +303,8 @@ bool generate_sorted_dependencies(const std::string& name,
 		return true;
 
 	// Insert our dependencies, libdl and libpthread
-#ifdef __x86_64__
-	dependencies.insert("/lib/x86_64-linux-gnu/libdl.so.2");
-	dependencies.insert("/lib/x86_64-linux-gnu/libpthread.so.0");
-#else
-	dependencies.insert("/lib/i386-linux-gnu/libpthread.so.0");
-	dependencies.insert("/lib/i386-linux-gnu/libdl.so.2");
-#endif
+	dependencies.insert(LIB_FLDR "/libdl.so.2");
+	dependencies.insert(LIB_FLDR "/libpthread.so.0");
 
 	// Sort the dependencies
 	result = sort_dependencies(dependencies);
@@ -372,8 +370,8 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 #endif
 
 	// Get the offsets of dlopen and syscall in the program's memory
-	long extern_dlopen = get_offset("libc", pid, "__libc_dlopen_mode");
-	long extern_syscall = get_offset("libc", pid, "syscall");
+	long extern_dlopen = get_offset(LIB_FLDR "/libc-2.19.so", pid, "__libc_dlopen_mode");
+	long extern_syscall = get_offset(LIB_FLDR "/libc-2.19.so", pid, "syscall");
 
 	// Inject the given library and other libraries that we need into the process
 	for (const auto& dep : dependencies)
@@ -381,13 +379,13 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 	inject_library(state, library_path.c_str(), extern_dlopen, extern_syscall);
 
 	// Get necessary pthread functions
-	long extern_ptcreate = get_offset("pthread", pid, "pthread_create");
-	long extern_ptattrinit = get_offset("pthread", pid, "pthread_attr_init");
-	long extern_ptattrset = get_offset("pthread", pid,
+	long extern_ptcreate = get_offset(LIB_FLDR "/libpthread-2.19.so", pid, "pthread_create");
+	long extern_ptattrinit = get_offset(LIB_FLDR "/libpthread-2.19.so", pid, "pthread_attr_init");
+	long extern_ptattrset = get_offset(LIB_FLDR "/libpthread-2.19.so", pid,
 			"pthread_attr_setdetachstate");
 
 	// Get the dlsym function so the process can find the libmain function
-	long extern_dlsym = get_offset("libdl", pid, "dlsym");
+	long extern_dlsym = get_offset(LIB_FLDR "/libdl-2.19.so", pid, "dlsym");
 
 	// Finally, copy the name of the library function to execute and run it
 	libmain = libmain? libmain : "libmain";
