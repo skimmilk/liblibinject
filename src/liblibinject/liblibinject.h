@@ -24,6 +24,9 @@ enum class inject_error {
 inject_error create_remote_thread(pid_t pid, const char* libname,
 		const char* function = NULL);
 
+// Attempt to unload a library that was injected by liblibinject
+inject_error unload_library(pid_t pid, const char* libname);
+
 };
 
 

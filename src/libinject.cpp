@@ -16,10 +16,16 @@ int main(int argc, char** argv)
 {
 	inject::inject_settings args;
 	args.fn_name = "libmain";
+	args.inject = true;
 	argp_parse(&inject::argp, argc, argv, 0, 0, &args);
 
-	auto result =
-			inject::create_remote_thread(args.pid, args.libname,args.fn_name);
+	inject::inject_error result;
+
+	if (args.inject)
+		result = inject::create_remote_thread(args.pid, args.libname, args.fn_name);
+	else
+		result = inject::unload_library(args.pid, args.libname);
+
 	if (result == inject::inject_error::attach)
 	{
 		std::cerr <<

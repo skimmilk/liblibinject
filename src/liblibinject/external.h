@@ -26,6 +26,13 @@ void external_call_dlopen(
 		int (*extern_syscall)(int),
 		const char* extern_filename);
 
+// This function is injected to unload a library
+void external_call_dlclose(
+		void* (*extern_dlopen)(const char*, int),
+		int (*extern_dlclose)(void*),
+		int (*extern_syscall)(int),
+		const char* extern_filename);
+
 // Run the libmain function in the background
 void external_main(int (*extern_syscall)(...),
 		int (*extern_pt_create)(long*, pthread_attr_t*, void*, void*),

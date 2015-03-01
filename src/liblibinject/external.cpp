@@ -55,8 +55,16 @@ long get_offset(const char* lib, pid_t pid, const char* symbol)
 {
 	void* handle = dlopen(lib, RTLD_LAZY);
 	if (!handle)
+	{
 		puts(dlerror());
+		return 0;
+	}
+
 	long local_offset = (long)dlsym(handle, symbol);
+	long extern_base = baseof(pid, lib);
+	if (!extern_base)
+		return 0;
+
 	return local_offset - baseof(getpid(), lib) + baseof(pid, lib);
 }
 
@@ -67,6 +75,17 @@ void external_call_dlopen(
 		const char* extern_filename)
 {
 	extern_dlopen(extern_filename, RTLD_NOW | RTLD_GLOBAL);
+	extern_syscall(1337);
+}
+
+void external_call_dlclose(
+		void* (*extern_dlopen)(const char*, int),
+		int (*extern_dlclose)(void*),
+		int (*extern_syscall)(int),
+		const char* extern_filename)
+{
+	void* handle = extern_dlopen(extern_filename, RTLD_NOLOAD);
+	extern_dlclose(handle);
 	extern_syscall(1337);
 }
 

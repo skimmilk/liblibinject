@@ -46,6 +46,17 @@ void inject_library(remote_state& state, const char* name,
 			extern_dlopen, extern_syscall, state.executable_page + 1024);
 }
 
+// Force the program to unload a library
+void remove_library(remote_state& state, const char* name,
+		long extern_dlopen, long extern_dlclose, long extern_syscall)
+{
+	// Copy libname into the program's buffer
+	extern_strcpy(state.pid, name, state.executable_page + 1024);
+
+	extern_call(state, (long*)external_call_dlclose,
+			extern_dlopen, extern_dlclose, extern_syscall, state.executable_page + 1024);
+}
+
 // Returns true if error
 // Sets library_path to full path to libname
 bool library_full_path(const char* libname, std::string& library_path)
@@ -149,6 +160,43 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 	extern_call(state, (long*)external_main, extern_syscall, extern_ptcreate,
 			extern_ptattrinit, extern_ptattrset, extern_dlsym,
 			state.executable_page + 1024);
+
+	detach(state);
+	return inject_error::none;
+}
+
+inject_error unload_library(pid_t pid, const char* libname)
+{
+	remote_state state;
+	state.pid = pid;
+
+	// Get the full path of program
+	std::string library_path;
+	if (library_full_path(libname, library_path))
+		return inject_error::path;
+
+	// Check if strings are copyable
+	if (check_lib_strs(library_path, nullptr))
+		return inject_error::path;
+
+	// Get the dependences for the library to be injected
+	std::vector<std::string> dependencies;
+	if (generate_sorted_dependencies(library_path, dependencies))
+		return inject_error::path;
+
+	// Attach to the program
+	if (!attach(state))
+		return inject_error::attach;
+
+	// Get the offsets of dlclose and syscall in the program's memory
+	long extern_dlclose = get_offset(LIB_FLDR "/libdl-2.19.so", pid, "dlclose");
+	long extern_dlopen = get_offset(LIB_FLDR "/libdl-2.19.so", pid, "dlopen");
+	long extern_syscall = get_offset(LIB_FLDR "/libc-2.19.so", pid, "syscall");
+
+	// Remove the library and its dependencies in reverse order
+	remove_library(state, libname, extern_dlopen, extern_dlclose, extern_syscall);
+	for (auto dep = dependencies.rbegin(); dep != dependencies.rend(); dep++)
+		remove_library(state, dep->c_str(), extern_dlopen, extern_dlclose, extern_syscall);
 
 	detach(state);
 	return inject_error::none;
