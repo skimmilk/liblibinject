@@ -70,44 +70,44 @@ long get_offset(const char* lib, pid_t pid, const char* symbol)
 
 // This function is injected into the program to load a library
 void external_call_dlopen(
-		void* (*extern_dlopen)(const char*, int),
-		int (*extern_syscall)(int),
+		dlopen_fn extern_dlopen,
+		syscall_fn extern_syscall,
+		int flags,
 		const char* extern_filename)
 {
-	extern_dlopen(extern_filename, RTLD_NOW | RTLD_GLOBAL);
-	extern_syscall(1337);
+	void* handle = extern_dlopen(extern_filename, flags);
+	extern_syscall(1337, handle);
 }
 
 void external_call_dlclose(
-		void* (*extern_dlopen)(const char*, int),
-		int (*extern_dlclose)(void*),
-		int (*extern_syscall)(int),
-		const char* extern_filename)
+		dlclose_fn extern_dlclose,
+		syscall_fn extern_syscall,
+		void* handle)
 {
-	void* handle = extern_dlopen(extern_filename, RTLD_NOLOAD);
-	extern_dlclose(handle);
-	extern_syscall(1337);
+	int result = extern_dlclose(handle);
+	extern_syscall(1337, result);
 }
 
 // Run the libmain function in the background
-void external_main(int (*extern_syscall)(...),
-		int (*extern_pt_create)(long*, pthread_attr_t*, void*, void*),
-		int (*extern_pt_attr_init)(pthread_attr_t*),
-		int (*pt_attr_setdetachstate)(pthread_attr_t*, int),
-		void* (*extern_dlsym)(int, const char*),
+void external_main(
+		syscall_fn extern_syscall,
+		pthread_create_fn extern_pt_create,
+		pthread_attr_init_fn extern_pt_attr_init,
+		pthread_attr_setdetachstate_fn extern_pt_attr_setdetachstate,
+		dlsym_fn extern_dlsym,
 		const char* fn_name)
 {
 	// Initialize the created thread as detached
 	pthread_attr_t tattr;
 	extern_pt_attr_init(&tattr);
-	pt_attr_setdetachstate(&tattr, PTHREAD_CREATE_DETACHED);
+	extern_pt_attr_setdetachstate(&tattr, PTHREAD_CREATE_DETACHED);
 
 	// Get the function to run in the background
 	void* libmain = extern_dlsym(0, fn_name);
 	long thread;
 	// Call the function in the background
 	extern_pt_create(&thread, &tattr, libmain, NULL);
-	extern_syscall(1337);
+	extern_syscall(1337, 0);
 }
 
 }; /* namespace inject */

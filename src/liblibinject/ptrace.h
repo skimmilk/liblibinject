@@ -39,7 +39,8 @@ long make_syscall(remote_state& state,
 
 // Force the process to call function
 // Will backup & restore program state
-void extern_call(remote_state& state, long* local_fn,
+// Returns the result of the call
+long extern_call(remote_state& state, long* local_fn,
 		long a1=0, long a2=0, long a3=0, long a4=0, long a5=0, long a6=0);
 
 // Copy string into location ptr in external process

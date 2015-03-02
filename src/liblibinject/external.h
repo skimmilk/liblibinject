@@ -20,25 +20,33 @@ long baseof(pid_t pid, const std::string& libname);
 // Get the offset of a symbol in the executable region of a library in memory
 long get_offset(const char* lib, pid_t pid, const char* symbol);
 
-// This function is injected into the program to load a library
-void external_call_dlopen(
-		void* (*extern_dlopen)(const char*, int),
-		int (*extern_syscall)(int),
-		const char* extern_filename);
+// The function type of libc's syscall()
+typedef int (*syscall_fn)(int, ...);
 
-// This function is injected to unload a library
-void external_call_dlclose(
-		void* (*extern_dlopen)(const char*, int),
-		int (*extern_dlclose)(void*),
-		int (*extern_syscall)(int),
-		const char* extern_filename);
+// Function types of libdl functions
+typedef void* (*dlopen_fn)(const char*, int);
+typedef int (*dlclose_fn)(void*);
+typedef void* (*dlsym_fn)(int, const char*);
+
+// Function types of pthread library functions
+typedef int (*pthread_create_fn)(long*, pthread_attr_t*, void*, void*);
+typedef int (*pthread_attr_init_fn)(pthread_attr_t*);
+typedef int (*pthread_attr_setdetachstate_fn)(pthread_attr_t*, int);
+
+// This function is injected into the program to load a library
+// flags variable is passed to the dlopen function
+void external_call_dlopen(dlopen_fn, syscall_fn, int flags, const char* extern_filename);
+
+// Unloads a library opened by dlopen by handle
+void external_call_dlclose(dlclose_fn, syscall_fn, void* handle);
 
 // Run the libmain function in the background
-void external_main(int (*extern_syscall)(...),
-		int (*extern_pt_create)(long*, pthread_attr_t*, void*, void*),
-		int (*extern_pt_attr_init)(pthread_attr_t*),
-		int (*pt_attr_setdetachstate)(pthread_attr_t*, int),
-		void* (*extern_dlsym)(int, const char*),
+void external_main(
+		syscall_fn,
+		pthread_create_fn,
+		pthread_attr_init_fn,
+		pthread_attr_setdetachstate_fn,
+		dlsym_fn,
 		const char* fn_name);
 
 } /* namespace inject */

@@ -8,6 +8,7 @@
 #include "ptrace.h"
 
 #include <string>
+#include <iostream>
 #include <sys/ptrace.h>
 #include <sys/user.h>
 #include <sys/wait.h>
@@ -111,7 +112,7 @@ void extern_strcpy(pid_t pid, const char* str, long ptr)
 
 // Force the process to call function
 // Will backup & restore program state
-void extern_call(remote_state& state, long* local_fn,
+long extern_call(remote_state& state, long* local_fn,
 		long a1, long a2, long a3, long a4, long a5, long a6)
 {
 	// Write the function stored here to the process
@@ -137,9 +138,17 @@ void extern_call(remote_state& state, long* local_fn,
 		PCHECK(PTRACE_SYSCALL, state.pid, 0, 0);
 		wait(0);
 		PCHECK(PTRACE_GETREGS, state.pid, 0, &regs);
+#ifdef DEBUG
+		std::cerr << "Intercepted syscall " << ORIG_SYSCALL(regs) << "\n";
+#endif
 		if (ORIG_SYSCALL(regs) == 1337)
 			break;
 	}
+
+	long result = (long)SECOND_ARGUMENT(regs);
+#ifdef DEBUG
+	std::cerr << "Callee returned " << result << "\n";
+#endif
 
 	// Let it fire the syscall and return back to normal
 	PCHECK(PTRACE_SYSCALL, state.pid, 0, 0);
@@ -148,6 +157,8 @@ void extern_call(remote_state& state, long* local_fn,
 	// Restore stack, registers
 	PCHECK(PTRACE_SETREGS, state.pid, 0, &state.regs_old);
 	restore_stack(state);
+
+	return result;
 }
 
 bool attach(remote_state& state)

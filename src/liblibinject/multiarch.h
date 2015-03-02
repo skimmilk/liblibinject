@@ -22,6 +22,7 @@ namespace inject{
 #define COUNTER(m) m.rip
 #define RESULT(m) m.rax
 #define ORIG_SYSCALL(m) m.orig_rax
+#define SECOND_ARGUMENT(m) m.rdi
 // Shellcode for syscall
 #define SHELL_SYSCALL 0x050f
 // Sets the arguments to a system call
@@ -69,6 +70,7 @@ static void set_usercall_arguments(pid_t pid,
 #define COUNTER(m) m.eip
 #define RESULT(m) m.eax
 #define ORIG_SYSCALL(m) m.orig_eax
+#define SECOND_ARGUMENT(m) m.ebx
 #define SHELL_SYSCALL 0x80CD
 // http://esec-lab.sogeti.com/post/2011/07/05/Linux-syscall-ABI
 static void set_syscall_arguments(pid_t pid, long syscall_n,

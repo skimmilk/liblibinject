@@ -11,6 +11,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <linux/limits.h>
+#include <dlfcn.h>
 
 // project includes
 #include "liblibinject.h"
@@ -35,26 +36,26 @@ namespace inject {
 // We force the application to run the library main function
 // Clean up and exit
 
-// Force the program to load a library
-void inject_library(remote_state& state, const char* name,
-		long extern_dlopen, long extern_syscall)
+// Call dlopen with name and dl_flags as arguments
+// Returns handle provided by dlopen
+long load_library(remote_state& state, const char* name,
+		long extern_dlopen, long extern_syscall,
+		long dl_flags)
 {
 	// Copy libname into the program's buffer
 	extern_strcpy(state.pid, name, state.executable_page + 1024);
 
-	extern_call(state, (long*)external_call_dlopen,
-			extern_dlopen, extern_syscall, state.executable_page + 1024);
+	return extern_call(state, (long*)external_call_dlopen,
+			extern_dlopen, extern_syscall, dl_flags, state.executable_page + 1024);
 }
 
 // Force the program to unload a library
-void remove_library(remote_state& state, const char* name,
-		long extern_dlopen, long extern_dlclose, long extern_syscall)
+long remove_library(remote_state& state,
+		long extern_dlclose, long extern_syscall,
+		long handle)
 {
-	// Copy libname into the program's buffer
-	extern_strcpy(state.pid, name, state.executable_page + 1024);
-
-	extern_call(state, (long*)external_call_dlclose,
-			extern_dlopen, extern_dlclose, extern_syscall, state.executable_page + 1024);
+	return extern_call(state, (long*)external_call_dlclose,
+			extern_dlclose, extern_syscall, handle);
 }
 
 // Returns true if error
@@ -141,8 +142,8 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 
 	// Inject the given library and other libraries that we need into the process
 	for (const auto& dep : dependencies)
-		inject_library(state, dep.c_str(), extern_dlopen, extern_syscall);
-	inject_library(state, library_path.c_str(), extern_dlopen, extern_syscall);
+		load_library(state, dep.c_str(), extern_dlopen, extern_syscall, RTLD_NOW | RTLD_GLOBAL);
+	load_library(state, library_path.c_str(), extern_dlopen, extern_syscall, RTLD_NOW | RTLD_GLOBAL);
 
 	// Get necessary pthread functions
 	long extern_ptcreate = get_offset(LIB_FLDR "/libpthread-2.19.so", pid, "pthread_create");
@@ -194,9 +195,18 @@ inject_error unload_library(pid_t pid, const char* libname)
 	long extern_syscall = get_offset(LIB_FLDR "/libc-2.19.so", pid, "syscall");
 
 	// Remove the library and its dependencies in reverse order
-	remove_library(state, libname, extern_dlopen, extern_dlclose, extern_syscall);
+	long handle = load_library(state, libname,
+			extern_dlopen, extern_syscall,
+			RTLD_NOLOAD);
+	remove_library(state, extern_dlclose, extern_syscall, handle);
+
 	for (auto dep = dependencies.rbegin(); dep != dependencies.rend(); dep++)
-		remove_library(state, dep->c_str(), extern_dlopen, extern_dlclose, extern_syscall);
+	{
+		handle = load_library(state, dep->c_str(),
+				extern_dlopen, extern_syscall,
+				RTLD_NOLOAD);
+		remove_library(state, extern_dlclose, extern_syscall, handle);
+	}
 
 	detach(state);
 	return inject_error::none;
