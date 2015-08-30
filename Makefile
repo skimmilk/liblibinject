@@ -9,8 +9,11 @@ SRC_EXT = cpp
 SRC_PATH = src
 # To specify 32-bit compilation on x86_64, remove the comment
 BITS32 = #-m32
+# The version of libc
+GLIBCVER = $(shell sh -c "ldd --version | head -n1 | cut -d' ' -f 5")
 # General compiler flags
-COMPILE_FLAGS = -std=c++0x -Wall -Wextra -g $(BITS32) -Wfatal-errors
+COMPILE_FLAGS = -std=c++0x -Wall -Wextra -g $(BITS32) -Wfatal-errors\
+	-DGLIBCVER=\"$(GLIBCVER)\"
 # Additional release-specific flags
 RCOMPILE_FLAGS = -D NDEBUG
 # Additional debug-specific flags

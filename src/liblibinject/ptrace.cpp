@@ -62,7 +62,7 @@ long make_syscall(remote_state& state,
 	user_regs_struct regs;
 
 	// Location of libc in process, needed to find syscall shellcode
-	auto exec_base = baseof(state.pid, "libc-2.19.so");
+	auto exec_base = baseof(state.pid, "libc-" GLIBCVER);
 
 	// This is the backup of the executable data
 	long backup = ptrace(PTRACE_PEEKDATA, state.pid, exec_base, 0);

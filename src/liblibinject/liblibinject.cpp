@@ -28,6 +28,14 @@ namespace inject {
 #define LIB_FLDR "/lib/i386-linux-gnu"
 #endif
 
+#ifndef GLIBCVER
+#define GLIBCVER "2.19"
+#endif
+
+#define LIBCLOC LIB_FLDR "/libc-" GLIBCVER ".so"
+#define DLLOC LIB_FLDR "/libdl-" GLIBCVER ".so"
+#define PTHREADLOC LIB_FLDR "/libpthread-" GLIBCVER ".so"
+
 // What happens (small version)
 // We attach to the program first
 // Then we force the process to create a small executable buffer
@@ -137,8 +145,8 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 		return inject_error::attach;
 
 	// Get the offsets of dlopen and syscall in the program's memory
-	long extern_dlopen = get_offset(LIB_FLDR "/libc-2.19.so", pid, "__libc_dlopen_mode");
-	long extern_syscall = get_offset(LIB_FLDR "/libc-2.19.so", pid, "syscall");
+	long extern_dlopen = get_offset(LIBCLOC, pid, "__libc_dlopen_mode");
+	long extern_syscall = get_offset(LIBCLOC, pid, "syscall");
 
 	// Inject the given library and other libraries that we need into the process
 	for (const auto& dep : dependencies)
@@ -146,13 +154,13 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 	load_library(state, library_path.c_str(), extern_dlopen, extern_syscall, RTLD_NOW | RTLD_GLOBAL);
 
 	// Get necessary pthread functions
-	long extern_ptcreate = get_offset(LIB_FLDR "/libpthread-2.19.so", pid, "pthread_create");
-	long extern_ptattrinit = get_offset(LIB_FLDR "/libpthread-2.19.so", pid, "pthread_attr_init");
-	long extern_ptattrset = get_offset(LIB_FLDR "/libpthread-2.19.so", pid,
+	long extern_ptcreate = get_offset(PTHREADLOC, pid, "pthread_create");
+	long extern_ptattrinit = get_offset(PTHREADLOC, pid, "pthread_attr_init");
+	long extern_ptattrset = get_offset(PTHREADLOC, pid,
 			"pthread_attr_setdetachstate");
 
 	// Get the dlsym function so the process can find the libmain function
-	long extern_dlsym = get_offset(LIB_FLDR "/libdl-2.19.so", pid, "dlsym");
+	long extern_dlsym = get_offset(DLLOC, pid, "dlsym");
 
 	// Finally, copy the name of the library function to execute and run it
 	libmain = libmain? libmain : "libmain";
@@ -190,9 +198,9 @@ inject_error unload_library(pid_t pid, const char* libname)
 		return inject_error::attach;
 
 	// Get the offsets of dlclose and syscall in the program's memory
-	long extern_dlclose = get_offset(LIB_FLDR "/libdl-2.19.so", pid, "dlclose");
-	long extern_dlopen = get_offset(LIB_FLDR "/libdl-2.19.so", pid, "dlopen");
-	long extern_syscall = get_offset(LIB_FLDR "/libc-2.19.so", pid, "syscall");
+	long extern_dlclose = get_offset(DLLOC, pid, "dlclose");
+	long extern_dlopen = get_offset(DLLOC, pid, "dlopen");
+	long extern_syscall = get_offset(LIBCLOC, pid, "syscall");
 
 	// Remove the library and its dependencies in reverse order
 	long handle = load_library(state, libname,
