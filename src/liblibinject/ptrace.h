@@ -11,6 +11,7 @@
 #define PTRACE_H_
 
 #include <sys/user.h>
+#include <unistd.h>
 #include <vector>
 
 namespace inject{
