@@ -12,6 +12,8 @@
 #include <pthread.h>
 #include <linux/limits.h>
 #include <dlfcn.h>
+#include <limits.h>
+#include <gnu/libc-version.h>
 
 // project includes
 #include "liblibinject.h"
@@ -23,18 +25,10 @@
 namespace inject {
 
 #ifdef __x86_64__
-#define LIB_FLDR "/lib/x86_64-linux-gnu"
+#define LIB_FLDR "/lib64"
 #else
-#define LIB_FLDR "/lib/i386-linux-gnu"
+#define LIB_FLDR "/lib32"
 #endif
-
-#ifndef GLIBCVER
-#define GLIBCVER "2.19"
-#endif
-
-#define LIBCLOC LIB_FLDR "/libc-" GLIBCVER ".so"
-#define DLLOC LIB_FLDR "/libdl-" GLIBCVER ".so"
-#define PTHREADLOC LIB_FLDR "/libpthread-" GLIBCVER ".so"
 
 // What happens (small version)
 // We attach to the program first
@@ -120,6 +114,13 @@ bool generate_sorted_dependencies(const std::string& name,
 	return false;
 }
 
+std::string fullpath(std::string path)
+{
+	char buf [PATH_MAX];
+	realpath(path.c_str(), buf);
+	return std::string(buf);
+}
+
 inject_error create_remote_thread(pid_t pid, const char* libname,
 		const char* libmain)
 {
@@ -145,8 +146,10 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 		return inject_error::attach;
 
 	// Get the offsets of dlopen and syscall in the program's memory
-	long extern_dlopen = get_offset(LIBCLOC, pid, "__libc_dlopen_mode");
-	long extern_syscall = get_offset(LIBCLOC, pid, "syscall");
+	auto cloc = fullpath(std::string(LIB_FLDR "/libc-") +
+			gnu_get_libc_version() + std::string(".so"));
+	long extern_dlopen = get_offset(cloc.c_str(), pid, "__libc_dlopen_mode");
+	long extern_syscall = get_offset(cloc.c_str(), pid, "syscall");
 
 	// Inject the given library and other libraries that we need into the process
 	for (const auto& dep : dependencies)
@@ -154,13 +157,18 @@ inject_error create_remote_thread(pid_t pid, const char* libname,
 	load_library(state, library_path.c_str(), extern_dlopen, extern_syscall, RTLD_NOW | RTLD_GLOBAL);
 
 	// Get necessary pthread functions
-	long extern_ptcreate = get_offset(PTHREADLOC, pid, "pthread_create");
-	long extern_ptattrinit = get_offset(PTHREADLOC, pid, "pthread_attr_init");
-	long extern_ptattrset = get_offset(PTHREADLOC, pid,
+	auto ptloc = fullpath(std::string(LIB_FLDR "/libpthread-") +
+			gnu_get_libc_version() + std::string(".so"));
+	long extern_ptcreate = get_offset(ptloc.c_str(), pid, "pthread_create");
+	long extern_ptattrinit = get_offset(ptloc.c_str(), pid,
+			"pthread_attr_init");
+	long extern_ptattrset = get_offset(ptloc.c_str(), pid,
 			"pthread_attr_setdetachstate");
 
 	// Get the dlsym function so the process can find the libmain function
-	long extern_dlsym = get_offset(DLLOC, pid, "dlsym");
+	auto dlloc = fullpath(std::string(LIB_FLDR "/libdl-") +
+			gnu_get_libc_version() + std::string(".so"));
+	long extern_dlsym = get_offset(dlloc.c_str(), pid, "dlsym");
 
 	// Finally, copy the name of the library function to execute and run it
 	libmain = libmain? libmain : "libmain";
@@ -198,9 +206,11 @@ inject_error unload_library(pid_t pid, const char* libname)
 		return inject_error::attach;
 
 	// Get the offsets of dlclose and syscall in the program's memory
-	long extern_dlclose = get_offset(DLLOC, pid, "dlclose");
-	long extern_dlopen = get_offset(DLLOC, pid, "dlopen");
-	long extern_syscall = get_offset(LIBCLOC, pid, "syscall");
+	auto dlloc = std::string(LIB_FLDR "/libdl-") +
+			gnu_get_libc_version() + std::string(".so");
+	long extern_dlclose = get_offset(dlloc.c_str(), pid, "dlclose");
+	long extern_dlopen = get_offset(dlloc.c_str(), pid, "dlopen");
+	long extern_syscall = get_offset(dlloc.c_str(), pid, "syscall");
 
 	// Remove the library and its dependencies in reverse order
 	long handle = load_library(state, libname,

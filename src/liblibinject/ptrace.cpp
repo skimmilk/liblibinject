@@ -17,6 +17,7 @@
 #include <sys/syscall.h>
 #include <error.h>
 #include <errno.h>
+#include <gnu/libc-version.h>
 
 #include "multiarch.h"
 #include "external.h"
@@ -62,7 +63,8 @@ long make_syscall(remote_state& state,
 	user_regs_struct regs;
 
 	// Location of libc in process, needed to find syscall shellcode
-	auto exec_base = baseof(state.pid, "libc-" GLIBCVER);
+	auto exec_base = baseof(state.pid,
+			"libc-" + std::string(gnu_get_libc_version()));
 
 	// This is the backup of the executable data
 	long backup = ptrace(PTRACE_PEEKDATA, state.pid, exec_base, 0);

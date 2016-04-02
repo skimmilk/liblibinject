@@ -20,7 +20,7 @@ bool library_dependencies(const std::string& libname, std::set<std::string>& res
 
 // Sort libraries so that the previous do not depend on the latter
 // The input set is destroyed in the process
-std::vector<std::string> sort_dependencies(std::set<std::string>& input);
+std::vector<std::string> sort_dependencies(const std::set<std::string>& input);
 
 }; /* namespace inject */
 #endif /* LIBDEPS_H_ */
